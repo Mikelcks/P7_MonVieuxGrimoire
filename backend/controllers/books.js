@@ -107,13 +107,15 @@ exports.rateBook = (req, res, next) => {
 
       // Vérifier si l'utilisateur a déjà noté ce livre
       const existingRating = book.ratings.find(r => r.userId === userId);
-      if (existingRating) {
-        return res.status(400).json({ message: 'User has already rated this book' });
-      }
 
-      // Ajouter la nouvelle note au tableau des notes
-      const newRating = { userId: userId, grade: grade };
-      book.ratings.push(newRating);
+      if (existingRating) {
+        // Mettre à jour la note si l'utilisateur a déjà noté ce livre
+        existingRating.grade = grade;
+      } else {
+        // Ajouter une nouvelle note si l'utilisateur n'a pas encore noté
+        const newRating = { userId: userId, grade: grade };
+        book.ratings.push(newRating);
+      }
 
       // Recalculer la note moyenne
       const totalRatings = book.ratings.length;
@@ -122,11 +124,12 @@ exports.rateBook = (req, res, next) => {
 
       // Sauvegarder les modifications
       book.save()
-        .then(() => res.status(200).json({ message: 'Rating added', book }))
+        .then(() => res.status(200).json({ message: 'Rating added/updated', book }))
         .catch(error => res.status(400).json({ error }));
     })
     .catch(error => res.status(500).json({ error }));
 };
+
 
 
 exports.getBestRatedBooks = (req, res, next) => {
