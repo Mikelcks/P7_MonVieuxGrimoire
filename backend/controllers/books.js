@@ -1,4 +1,4 @@
-const Book = require('../models/book');
+const Book = require('../models/Book');
 const fs = require('fs');
 
 exports.createBook = (req, res, next) => {
@@ -12,9 +12,14 @@ exports.createBook = (req, res, next) => {
   });
 
   book.save()
-  .then(() => { res.status(201).json({message: 'Objet enregistré !'})})
-  .catch(error => { res.status(400).json( { error })})
+  .then(() => { 
+    res.status(201).json({message: 'Objet enregistré !'});
+  })
+  .catch(error => { 
+    res.status(400).json({ error });
+  });
 };
+
 
 exports.getOneBook = (req, res, next) => {
   Book.findOne({
@@ -73,16 +78,61 @@ exports.deleteBook = (req, res, next) => {
       });
 };
 
-exports.getAllStuff = (req, res, next) => {
+exports.getAllBooks = (req, res, next) => {
   Book.find().then(
     (books) => {
       res.status(200).json(books);
     }
   ).catch(
     (error) => {
-      res.status(400).json({
-        error: error
-      });
+      res.status(400).json({ error: error });
     }
   );
+};
+
+exports.rateBook = (req, res, next) => {
+  const userId = req.auth.userId;
+  const grade = req.body.grade;
+
+  // Valider la note (entre 0 et 5)
+  if (grade < 0 || grade > 5) {
+    return res.status(400).json({ message: 'Invalid rating. Rating must be between 0 and 5.' });
+  }
+
+  Book.findOne({ _id: req.params.id })
+    .then(book => {
+      if (!book) {
+        return res.status(404).json({ message: 'Book not found' });
+      }
+
+      // Vérifier si l'utilisateur a déjà noté ce livre
+      const existingRating = book.ratings.find(r => r.userId === userId);
+      if (existingRating) {
+        return res.status(400).json({ message: 'User has already rated this book' });
+      }
+
+      // Ajouter la nouvelle note au tableau des notes
+      const newRating = { userId: userId, grade: grade };
+      book.ratings.push(newRating);
+
+      // Recalculer la note moyenne
+      const totalRatings = book.ratings.length;
+      const totalGrade = book.ratings.reduce((sum, rating) => sum + rating.grade, 0);
+      book.averageRating = totalGrade / totalRatings;
+
+      // Sauvegarder les modifications
+      book.save()
+        .then(() => res.status(200).json({ message: 'Rating added', book }))
+        .catch(error => res.status(400).json({ error }));
+    })
+    .catch(error => res.status(500).json({ error }));
+};
+
+
+exports.getBestRatedBooks = (req, res, next) => {
+  Book.find()
+    .sort({ averageRating: -1 })  // Trie par la note moyenne décroissante
+    .limit(5)  // Limite à 5 résultats
+    .then(books => res.status(200).json(books))
+    .catch(error => res.status(400).json({ error }));
 };
