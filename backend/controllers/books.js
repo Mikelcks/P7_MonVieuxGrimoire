@@ -20,7 +20,6 @@ exports.createBook = (req, res, next) => {
   });
 };
 
-
 exports.getOneBook = (req, res, next) => {
   Book.findOne({
     _id: req.params.id
@@ -38,26 +37,32 @@ exports.getOneBook = (req, res, next) => {
 };
 
 exports.modifyBook = (req, res, next) => {
+  console.log('Request Body:', req.body); // Affiche les données reçues
+
+  // Crée l'objet du livre avec la nouvelle image si nécessaire
   const bookObject = req.file ? {
       ...JSON.parse(req.body.book),
       imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
   } : { ...req.body };
 
   delete bookObject._userId;
+
+  // Trouve le livre et vérifie l'autorisation de modification
   Book.findOne({_id: req.params.id})
       .then((book) => {
           if (book.userId != req.auth.userId) {
-              res.status(401).json({ message : 'Not authorized'});
-          } else {
-              Book.updateOne({ _id: req.params.id}, { ...bookObject, _id: req.params.id})
+              return res.status(401).json({ message : 'Not authorized'});
+          }
+          // Met à jour le livre avec les nouvelles données
+          Book.updateOne({ _id: req.params.id}, { ...bookObject, _id: req.params.id })
               .then(() => res.status(200).json({message : 'Objet modifié!'}))
               .catch(error => res.status(401).json({ error }));
-          }
       })
       .catch((error) => {
           res.status(400).json({ error });
       });
 };
+
 
 exports.deleteBook = (req, res, next) => {
   Book.findOne({ _id: req.params.id})
@@ -92,50 +97,52 @@ exports.getAllBooks = (req, res, next) => {
 
 exports.rateBook = (req, res, next) => {
   const userId = req.auth.userId;
-  const grade = req.body.grade;
+  const { rating } = req.body;
+  const { id } = req.params;
 
-  // Valider la note (entre 0 et 5)
-  if (grade < 0 || grade > 5) {
+  if (!id || !userId || rating === undefined) {
+    return res.status(400).json({ message: 'Missing required parameters.' });
+  }
+
+  if (rating < 0 || rating > 5) {
     return res.status(400).json({ message: 'Invalid rating. Rating must be between 0 and 5.' });
   }
 
-  Book.findOne({ _id: req.params.id })
+  Book.findOne({ _id: id })
     .then(book => {
       if (!book) {
         return res.status(404).json({ message: 'Book not found' });
       }
 
-      // Vérifier si l'utilisateur a déjà noté ce livre
       const existingRating = book.ratings.find(r => r.userId === userId);
 
       if (existingRating) {
-        // Mettre à jour la note si l'utilisateur a déjà noté ce livre
-        existingRating.grade = grade;
-      } else {
-        // Ajouter une nouvelle note si l'utilisateur n'a pas encore noté
-        const newRating = { userId: userId, grade: grade };
-        book.ratings.push(newRating);
+        return res.status(400).json({ message: 'User has already rated this book. Ratings cannot be modified.' });
       }
 
-      // Recalculer la note moyenne
+      book.ratings.push({ userId, grade: rating });
+
       const totalRatings = book.ratings.length;
       const totalGrade = book.ratings.reduce((sum, rating) => sum + rating.grade, 0);
-      book.averageRating = totalGrade / totalRatings;
+      book.averageRating = totalRatings > 0 ? totalGrade / totalRatings : 0;
 
-      // Sauvegarder les modifications
-      book.save()
-        .then(() => res.status(200).json({ message: 'Rating added/updated', book }))
-        .catch(error => res.status(400).json({ error }));
+      return book.save();
     })
-    .catch(error => res.status(500).json({ error }));
+    .then(updatedBook => {
+      console.log('Updated Book:', updatedBook);  // Log the updated book
+      res.status(200).json({ message: 'Rating added', book: updatedBook });
+    })
+    .catch(error => {
+      console.error('Error updating book:', error);  // Log the error
+      res.status(500).json({ error });
+    });
 };
-
 
 
 exports.getBestRatedBooks = (req, res, next) => {
   Book.find()
     .sort({ averageRating: -1 })  // Trie par la note moyenne décroissante
-    .limit(5)  // Limite à 5 résultats
+    .limit(3)  // Limite à 5 résultats
     .then(books => res.status(200).json(books))
     .catch(error => res.status(400).json({ error }));
 };
