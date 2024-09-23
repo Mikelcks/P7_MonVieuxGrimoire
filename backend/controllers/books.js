@@ -130,7 +130,7 @@ exports.rateBook = (req, res, next) => {
     })
     .then(updatedBook => {
       console.log('Updated Book:', updatedBook);  // Log the updated book
-      res.status(200).json({ message: 'Rating added', book: updatedBook });
+      res.status(200).json({ message: 'Rating added', book: updatedBook, _id: id });
     })
     .catch(error => {
       console.error('Error updating book:', error);  // Log the error
