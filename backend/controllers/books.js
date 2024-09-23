@@ -104,8 +104,8 @@ exports.rateBook = (req, res, next) => {
     return res.status(400).json({ message: 'Missing required parameters.' });
   }
 
-  if (rating < 0 || rating > 5) {
-    return res.status(400).json({ message: 'Invalid rating. Rating must be between 0 and 5.' });
+  if (rating < 1 || rating > 5) {
+    return res.status(400).json({ message: 'Invalid rating. Rating must be between 1 and 5.' });
   }
 
   Book.findOne({ _id: id })
@@ -129,11 +129,11 @@ exports.rateBook = (req, res, next) => {
       return book.save();
     })
     .then(updatedBook => {
-      console.log('Updated Book:', updatedBook);  // Log the updated book
-      res.status(200).json({ message: 'Rating added', book: updatedBook, _id: id });
+      console.log('Updated Book:', updatedBook);
+      res.status(200).json(updatedBook);
     })
     .catch(error => {
-      console.error('Error updating book:', error);  // Log the error
+      console.error('Error updating book:', error);
       res.status(500).json({ error });
     });
 };
