@@ -1,23 +1,40 @@
 const Book = require('../models/Book');
 const fs = require('fs');
+const sharp = require('sharp');
+const path = require('path');
 
-exports.createBook = (req, res, next) => {
-  const bookObject = JSON.parse(req.body.book);
-  delete bookObject._id;
-  delete bookObject._userId;
-  const book = new Book({
-      ...bookObject,
-      userId: req.auth.userId,
-      imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
-  });
+exports.createBook = async (req, res, next) => {
+  try {
+      const bookObject = JSON.parse(req.body.book);
+      delete bookObject._id;
+      delete bookObject._userId;
 
-  book.save()
-  .then(() => { 
-    res.status(201).json({message: 'Objet enregistré !'});
-  })
-  .catch(error => { 
-    res.status(400).json({ error });
-  });
+      // Chemin du fichier d'origine
+      const tempImagePath = req.file.path; // Chemin du fichier uploadé
+      const optimizedImagePath = path.join('images', `optimized_${Date.now()}.webp`); // Chemin pour l'image optimisée
+
+      // Optimisation de l'image
+      await sharp(tempImagePath)
+          .resize(800) // Redimensionnement à 800px de large
+          .toFormat('webp') // Convertir en format WebP
+          .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
+
+      // Création de l'objet Book avec l'URL de l'image optimisée
+      const book = new Book({
+          ...bookObject,
+          userId: req.auth.userId,
+          imageUrl: `${req.protocol}://${req.get('host')}/${optimizedImagePath}`
+      });
+
+      await book.save();
+      fs.unlink(tempImagePath, (err) => { // Supprime le fichier original
+          if (err) console.error('Error deleting temp image:', err);
+      });
+
+      res.status(201).json({ message: 'Objet enregistré !' });
+  } catch (error) {
+      res.status(400).json({ error });
+  }
 };
 
 exports.getOneBook = (req, res, next) => {
@@ -36,33 +53,46 @@ exports.getOneBook = (req, res, next) => {
   );
 };
 
-exports.modifyBook = (req, res, next) => {
-  console.log('Request Body:', req.body); // Affiche les données reçues
+exports.modifyBook = async (req, res, next) => {
+  try {
+      const bookObject = req.file ? {
+          ...JSON.parse(req.body.book),
+          imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
+      } : { ...req.body };
 
-  // Crée l'objet du livre avec la nouvelle image si nécessaire
-  const bookObject = req.file ? {
-      ...JSON.parse(req.body.book),
-      imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
-  } : { ...req.body };
+      delete bookObject._userId;
 
-  delete bookObject._userId;
+      const book = await Book.findOne({ _id: req.params.id });
+      if (book.userId != req.auth.userId) {
+          return res.status(401).json({ message: 'Not authorized' });
+      }
 
-  // Trouve le livre et vérifie l'autorisation de modification
-  Book.findOne({_id: req.params.id})
-      .then((book) => {
-          if (book.userId != req.auth.userId) {
-              return res.status(401).json({ message : 'Not authorized'});
-          }
-          // Met à jour le livre avec les nouvelles données
-          Book.updateOne({ _id: req.params.id}, { ...bookObject, _id: req.params.id })
-              .then(() => res.status(200).json({message : 'Objet modifié!'}))
-              .catch(error => res.status(401).json({ error }));
-      })
-      .catch((error) => {
-          res.status(400).json({ error });
-      });
+      if (req.file) {
+          // Chemin du fichier d'origine
+          const tempImagePath = req.file.path; // Chemin du fichier uploadé
+          const optimizedImagePath = path.join('images', `optimized_${Date.now()}.webp`); // Chemin pour l'image optimisée
+
+          // Optimisation de l'image
+          await sharp(tempImagePath)
+              .resize(800) // Redimensionnement à 800px de large
+              .toFormat('webp') // Convertir en format WebP
+              .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
+
+          // Supprimer l'ancienne image
+          const filename = book.imageUrl.split('/images/')[1];
+          fs.unlink(`images/${filename}`, (err) => {
+              if (err) console.error('Error deleting old image:', err);
+          });
+
+          bookObject.imageUrl = `${req.protocol}://${req.get('host')}/${optimizedImagePath}`;
+      }
+
+      await Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id });
+      res.status(200).json({ message: 'Objet modifié!' });
+  } catch (error) {
+      res.status(400).json({ error });
+  }
 };
-
 
 exports.deleteBook = (req, res, next) => {
   Book.findOne({ _id: req.params.id})
@@ -104,7 +134,7 @@ exports.rateBook = (req, res, next) => {
     return res.status(400).json({ message: 'Missing required parameters.' });
   }
 
-  if (rating < 1 || rating > 5) {
+  if (rating < 0 || rating > 5) {
     return res.status(400).json({ message: 'Invalid rating. Rating must be between 1 and 5.' });
   }
 
@@ -137,7 +167,6 @@ exports.rateBook = (req, res, next) => {
       res.status(500).json({ error });
     });
 };
-
 
 exports.getBestRatedBooks = (req, res, next) => {
   Book.find()
