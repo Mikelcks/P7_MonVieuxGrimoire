@@ -13,7 +13,10 @@ rendez vous dans le dossier backend
 commande : npm install
 commande : npm install -g nodemon ( Cela rend nodemon disponible sur tout le système peu importe ou se trouve le dossier )
 
-Maintenant que toutes les dépendances sont installées nous pouvons lancer le projet. Pour cela il vous faudra 2 terminal:
+Maintenant que toutes les dépendances sont installées nous pouvons lancer le projet en local. Pour cela il vous faudra 2 terminal:
 
 commande a lancer dans le 1er terminal dans le dossier backend : nodemon server
 commande a lancer dans le 2nd terminal dans le dossier frontend : npm run start
+
+Pour lancer le projet a partir de votre server voici comment faire : 
+

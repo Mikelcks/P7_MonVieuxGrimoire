@@ -1,39 +1,50 @@
 const Book = require('../models/Book');
-const fs = require('fs');
+const fs = require('fs').promises;
 const sharp = require('sharp');
 const path = require('path');
 
 exports.createBook = async (req, res, next) => {
   try {
-      const bookObject = JSON.parse(req.body.book);
-      delete bookObject._id;
-      delete bookObject._userId;
+    const bookObject = JSON.parse(req.body.book);
+    delete bookObject._id;
+    delete bookObject._userId;
 
-      // Chemin du fichier d'origine
-      const tempImagePath = req.file.path; // Chemin du fichier uploadé
-      const optimizedImagePath = path.join('images', `optimized_${Date.now()}.webp`); // Chemin pour l'image optimisée
+    // Désactiver le cache de Sharp pour éviter que le fichier ne soit verrouillé
+    sharp.cache(false);
 
-      // Optimisation de l'image
-      await sharp(tempImagePath)
-          .resize(800) // Redimensionnement à 800px de large
-          .toFormat('webp') // Convertir en format WebP
-          .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
+    // Chemin du fichier d'origine
+    const tempImagePath = req.file.path; // Chemin du fichier uploadé
+    const optimizedFilename = `optimized_${Date.now()}.webp`; // Nom du fichier optimisé
+    const optimizedImagePath = path.join('images', optimizedFilename); // Chemin complet de l'image optimisée
 
-      // Création de l'objet Book avec l'URL de l'image optimisée
-      const book = new Book({
-          ...bookObject,
-          userId: req.auth.userId,
-          imageUrl: `${req.protocol}://${req.get('host')}/${optimizedImagePath}`
-      });
+    // Optimisation de l'image
+    await sharp(tempImagePath)
+        .resize(800) // Redimensionnement à 800px de large
+        .toFormat('webp') // Convertir en format WebP
+        .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
 
-      await book.save();
-      fs.unlink(tempImagePath, (err) => { // Supprime le fichier original
-          if (err) console.error('Error deleting temp image:', err);
-      });
+    // Création de l'objet Book avec l'URL de l'image optimisée
+    const book = new Book({
+        ...bookObject,
+        userId: req.auth.userId,
+        imageUrl: `${req.protocol}://${req.get('host')}/images/${optimizedFilename}` // Utilisation du nom du fichier optimisé
+    });
 
-      res.status(201).json({ message: 'Objet enregistré !' });
+    await book.save();
+
+    // Supprimer le fichier original non optimisé après un petit délai
+    setTimeout(async () => {
+      try {
+        await fs.unlink(tempImagePath);
+        console.log('Fichier original supprimé avec succès !');
+      } catch (err) {
+        console.error('Erreur lors de la suppression du fichier original:', err);
+      }
+    }, 1000); // On ajoute un délai pour être sûr que toutes les opérations sont terminées
+
+    res.status(201).json({ message: 'Objet enregistré !' });
   } catch (error) {
-      res.status(400).json({ error });
+    res.status(400).json({ error });
   }
 };
 
@@ -55,62 +66,88 @@ exports.getOneBook = (req, res, next) => {
 
 exports.modifyBook = async (req, res, next) => {
   try {
-      const bookObject = req.file ? {
-          ...JSON.parse(req.body.book),
-          imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
-      } : { ...req.body };
+    const bookObject = req.file ? {
+      ...JSON.parse(req.body.book)
+    } : { ...req.body };
 
-      delete bookObject._userId;
+    delete bookObject._userId;
 
-      const book = await Book.findOne({ _id: req.params.id });
-      if (book.userId != req.auth.userId) {
-          return res.status(401).json({ message: 'Not authorized' });
+    const book = await Book.findOne({ _id: req.params.id });
+    if (book.userId != req.auth.userId) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    // Si une nouvelle image a été uploadée
+    if (req.file) {
+      const tempImagePath = req.file.path; // Chemin du fichier temporaire (nouveau fichier uploadé)
+      const optimizedFilename = `optimized_${Date.now()}.webp`; // Nom du fichier optimisé
+      const optimizedImagePath = path.join('images', optimizedFilename); // Chemin complet du fichier optimisé
+
+      // Optimisation de la nouvelle image
+      await sharp(tempImagePath)
+        .resize(800) // Redimensionnement à 800px de large
+        .toFormat('webp') // Convertir en format WebP
+        .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
+
+      // Supprimer l'ancienne image associée
+      const oldFilename = book.imageUrl.split('/images/')[1];
+
+      try {
+        // Suppression de l'ancienne image de manière asynchrone
+        await fs.unlink(`images/${oldFilename}`);
+        console.log(`Ancienne image supprimée: ${oldFilename}`);
+      } catch (error) {
+        console.error(`Erreur lors de la suppression de l'ancienne image : ${oldFilename}`, error);
       }
 
-      if (req.file) {
-          // Chemin du fichier d'origine
-          const tempImagePath = req.file.path; // Chemin du fichier uploadé
-          const optimizedImagePath = path.join('images', `optimized_${Date.now()}.webp`); // Chemin pour l'image optimisée
+      // Mise à jour de l'URL de l'image optimisée dans l'objet Book
+      bookObject.imageUrl = `${req.protocol}://${req.get('host')}/images/${optimizedFilename}`;
 
-          // Optimisation de l'image
-          await sharp(tempImagePath)
-              .resize(800) // Redimensionnement à 800px de large
-              .toFormat('webp') // Convertir en format WebP
-              .toFile(optimizedImagePath); // Sauvegarder l'image optimisée
-
-          // Supprimer l'ancienne image
-          const filename = book.imageUrl.split('/images/')[1];
-          fs.unlink(`images/${filename}`, (err) => {
-              if (err) console.error('Error deleting old image:', err);
-          });
-
-          bookObject.imageUrl = `${req.protocol}://${req.get('host')}/${optimizedImagePath}`;
+      // Supprimer l'image temporaire non optimisée après l'optimisation
+      try {
+        await fs.unlink(tempImagePath);
+        console.log(`Image temporaire supprimée: ${tempImagePath}`);
+      } catch (error) {
+        console.error(`Erreur lors de la suppression de l'image temporaire: ${tempImagePath}`, error);
       }
+    }
 
-      await Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id });
-      res.status(200).json({ message: 'Objet modifié!' });
+    // Mise à jour du livre dans la base de données
+    await Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id });
+    res.status(200).json({ message: 'Objet modifié avec succès !' });
   } catch (error) {
-      res.status(400).json({ error });
+    res.status(400).json({ error });
   }
 };
 
 exports.deleteBook = (req, res, next) => {
-  Book.findOne({ _id: req.params.id})
-      .then(book => {
-          if (book.userId != req.auth.userId) {
-              res.status(401).json({message: 'Not authorized'});
-          } else {
-              const filename = book.imageUrl.split('/images/')[1];
-              fs.unlink(`images/${filename}`, () => {
-                  Book.deleteOne({_id: req.params.id})
-                      .then(() => { res.status(200).json({message: 'Objet supprimé !'})})
-                      .catch(error => res.status(401).json({ error }));
-              });
-          }
-      })
-      .catch( error => {
-          res.status(500).json({ error });
-      });
+  Book.findOne({ _id: req.params.id })
+    .then(async (book) => {
+      if (book.userId != req.auth.userId) {
+        return res.status(401).json({ message: 'Not authorized' });
+      }
+
+      try {
+        const filename = book.imageUrl.split('/images/')[1];
+
+        // Suppression de l'image associée
+        await fs.unlink(`images/${filename}`);
+        console.log('Image supprimée avec succès.');
+
+        // Suppression du livre dans la base de données
+        await Book.deleteOne({ _id: req.params.id });
+        console.log('Livre supprimé avec succès.');
+
+        res.status(200).json({ message: 'Livre et image supprimés avec succès !' });
+      } catch (error) {
+        // Gestion des erreurs (pour la suppression de l'image ou du livre)
+        console.error('Erreur lors de la suppression:', error);
+        res.status(500).json({ error: 'Erreur lors de la suppression du livre ou de l\'image.' });
+      }
+    })
+    .catch((error) => {
+      res.status(500).json({ error: 'Livre non trouvé.' });
+    });
 };
 
 exports.getAllBooks = (req, res, next) => {
