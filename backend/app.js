@@ -1,13 +1,14 @@
 const express = require('express');
 const bodyParser= require('body-parser')
 const mongoose = require('mongoose');
+require('dotenv').config();
 
 const bookRoutes = require('./routes/book');
 const userRoutes = require('./routes/user');
 const path = require('path');
 const { error } = require('console');
 
-mongoose.connect('mongodb+srv://mikeloc:rino57@cluster0.rkuf9.mongodb.net/',
+mongoose.connect(process.env.MONGODB_URI,
    { useNewUrlParser: true,
      useUnifiedTopology: true })
    .then(() => console.log('Connexion à MongoDB réussie !'))
