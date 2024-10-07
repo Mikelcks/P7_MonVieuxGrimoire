@@ -66,9 +66,9 @@ exports.getOneBook = (req, res, next) => {
 
 exports.modifyBook = async (req, res, next) => {
   try {
-    const bookObject = req.file ? {
-      ...JSON.parse(req.body.book)
-    } : { ...req.body };
+    const bookObject = req.file
+      ? { ...JSON.parse(req.body.book) }
+      : { ...req.body };
 
     delete bookObject._userId;
 
@@ -79,6 +79,9 @@ exports.modifyBook = async (req, res, next) => {
 
     // Si une nouvelle image a été uploadée
     if (req.file) {
+      // Désactiver le cache de Sharp pour éviter que le fichier ne soit verrouillé
+      sharp.cache(false);
+
       const tempImagePath = req.file.path; // Chemin du fichier temporaire (nouveau fichier uploadé)
       const optimizedFilename = `optimized_${Date.now()}.webp`; // Nom du fichier optimisé
       const optimizedImagePath = path.join('images', optimizedFilename); // Chemin complet du fichier optimisé
@@ -91,7 +94,6 @@ exports.modifyBook = async (req, res, next) => {
 
       // Supprimer l'ancienne image associée
       const oldFilename = book.imageUrl.split('/images/')[1];
-
       try {
         // Suppression de l'ancienne image de manière asynchrone
         await fs.unlink(`images/${oldFilename}`);
@@ -103,13 +105,15 @@ exports.modifyBook = async (req, res, next) => {
       // Mise à jour de l'URL de l'image optimisée dans l'objet Book
       bookObject.imageUrl = `${req.protocol}://${req.get('host')}/images/${optimizedFilename}`;
 
-      // Supprimer l'image temporaire non optimisée après l'optimisation
-      try {
-        await fs.unlink(tempImagePath);
-        console.log(`Image temporaire supprimée: ${tempImagePath}`);
-      } catch (error) {
-        console.error(`Erreur lors de la suppression de l'image temporaire: ${tempImagePath}`, error);
-      }
+      // Supprimer l'image temporaire non optimisée après un petit délai
+      setTimeout(async () => {
+        try {
+          await fs.unlink(tempImagePath);
+          console.log(`Image temporaire supprimée: ${tempImagePath}`);
+        } catch (error) {
+          console.error(`Erreur lors de la suppression de l'image temporaire: ${tempImagePath}`, error);
+        }
+      }, 1000); // On ajoute un délai pour être sûr que toutes les opérations sont terminées
     }
 
     // Mise à jour du livre dans la base de données
